@@ -1,0 +1,217 @@
+# ================================================================
+# Robusta Helm values.yaml
+# Pod restart email alerts — routed per team via pod labels
+#
+# Strategy:
+#   - Each team gets their own mail_sink and/or ms_teams_sink
+#   - Each playbook explicitly lists which sinks it sends to
+#   - Each sink's scope.include filters on pod label (e.g. notify=devops)
+#     so only pods with a matching label trigger that sink
+#   - This prevents duplicate alerts — each sink only accepts its own team's pods
+# 
+# Note using K8s secret to inject SMTP credential here doesn't work for current Robusta version, see README.md for workaround.
+#
+# To opt a K8s deployment into alerts for DevOps team, add this label to its pod template:
+#   - spec.template.metadata.labels.notify: "devops"
+#   - metadata.labels.notify: "devops"
+#
+# ================================================================
+
+# Set it to whatever EKS cluster is named so when you get an alert email you know which cluster it came from. 
+clusterName: "eks-qsrh"
+
+# Disable Robusta's own Prometheus stack — not needed for email alerts
+enablePrometheusStack: false
+enablePlatformPlaybooks: false
+builtinPlaybooks: []
+
+
+# Stops Robusta sending anonymous usage stats back to Robusta's servers.
+globalConfig:
+  telemetry_enabled: false
+  additional_env_vars:
+    - name: TELEMETRY_ENABLED
+      value: "false"
+    - name: ROBUSTA_TELEMETRY
+      value: "false"
+
+# ----------------------------------------------------------------
+# Runner Pod — main Robusta brain
+# Executes playbooks, sends notifications
+# ----------------------------------------------------------------
+runner:
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"   # Testing shows 512Mi is required else OOMKill can happen
+      cpu: "200m"
+
+
+# ----------------------------------------------------------------
+# Forwarder Pod — watches Kubernetes API event stream
+# IMPORTANT: must set CPU limit or it will hog node CPU
+# ----------------------------------------------------------------
+forwarder:
+  resources:
+    requests:
+      memory: "64Mi"
+      cpu: "50m"
+    limits:
+      memory: "128Mi"
+      cpu: "200m"    # critical — no default limit in Helm chart
+      # keep CPU limit — prevents hogging regardless of cluster size
+
+# ----------------------------------------------------------------
+# SMTP Email Sinks — one per team/manager
+#
+# Each sink filters on pod label: notify=<team>
+# Pods without a matching notify label are ignored by all sinks.
+#
+# To add a new team:
+#   1. Duplicate a sink block below
+#   2. Change name, mailto, and scope.include labels value
+#   3. Add notify: "<new-team>" label to that team's deployment
+#
+# Gmail format:
+#   mailtos://your-mail.com:APP-PASSWORD@gmail.com?to=recipient@company.com
+#
+# Corporate SMTP format:
+#   mailtos://user:password@your.smtp.server:465?from=alerts@yourcompany.com&to=recipient@company.com
+#
+# Note: use port 587 for TLS/STARTTLS, port 465 for SSL
+# ----------------------------------------------------------------
+sinksConfig:
+
+  # ── DevOps Team ─────────────────────────────────────────────────────
+  # Receives alerts for pods with label: notify=devops
+  - mail_sink:
+      name: email-devops-team
+      mailto: "mailtos://${user}:${password}@mail1.company-domain.com:587?from=admin@company-domain.com&to=${your-email}"
+      with_header: true
+      default: false   # only receives alerts from playbooks that explicitly name it
+      scope:
+        include:
+          - labels: "notify=devops"
+          
+  # ── MS Teams ────────────────────────────────────────────────────────
+  # Sends alerts to a shared Teams channel via Incoming Webhook.
+  # scope.include ensures only labeled pods can trigger it.
+  #
+  # How to get the webhook URL:
+  #   1. In Teams, open the channel you want alerts in
+  #   2. Click ··· → Connectors → "Incoming Webhook" → Configure
+  #   3. Name it (e.g. "Robusta K8s Alerts") and click Create
+  #   4. Copy the URL and paste it below
+  #
+  # For newer Teams Workflows webhook (recommended by Microsoft):
+  #   Channel → Workflows → "Post to a channel when a webhook request is received"
+
+  # Use this sink to send alert to MS Teams 'DevOps' Chat
+  - ms_teams_sink:
+      name: ms-teams-alerts-devops
+      webhook_url: "REPLACE_WITH_WEBHOOK_URL"
+      default: true   # required — Robusta needs at least one default sink or all alerts are dropped
+      scope:
+       include:
+         - labels: "notify=devops"
+
+# ----------------------------------------------------------------
+# Playbooks — what triggers alerts and what info to attach
+#
+# All playbooks send to ALL sinks.
+# Each sink's scope.include ensures only the right team receives the alert message(s)
+#
+# Flow for a pod with label notify=devops:
+#   CrashLoop        → all sinks → email-devops-team & ms-teams-alerts-devops send alerts
+#   OOMKill          → all sinks → email-devops-team & ms-teams-alerts-devops send alerts
+#   Liveness         → all sinks → email-devops-team & ms-teams-alerts-devops send alerts
+#   Any pod restart  → all sinks → email-devops-team & ms-teams-alerts-devops send alerts
+#   Deployment update→ all sinks → email-devops-team & ms-teams-alerts-devops send alerts
+# ----------------------------------------------------------------
+customPlaybooks:
+
+  - name: "CrashLoop Alert"
+    triggers:
+      - on_pod_crash_loop: {}
+    actions:
+      - create_finding:
+          title: "Pod $name crashed in namespace $namespace"
+          aggregation_key: "CrashLoopBackOff"
+          severity: HIGH
+          repeat_delay: 120  # One alert email every 2 min 
+      - logs_enricher:
+          lines: 100  # default is much higher
+    sinks:
+      - email-devops-team
+      - ms-teams-alerts-devops
+
+  - name: "OOMKill Alert"
+    triggers:
+      - on_pod_oom_killed: {}
+    actions:
+      - create_finding:
+          title: "Pod $name was OOMKilled in namespace $namespace"
+          aggregation_key: "OOMKill"
+          severity: HIGH
+          repeat_delay: 120  # One alert email every 2 min
+      - logs_enricher:
+          lines: 100  # default is much higher
+    sinks:
+      - email-devops-team
+      - ms-teams-alerts-devops
+
+  - name: "Liveness Probe Fail Alert"
+    triggers:
+      - on_kubernetes_warning_event_create:
+          include: ["Liveness"]
+    actions:
+      - create_finding:
+          title: "Pod $name restarted — liveness probe failed in namespace $namespace"
+          aggregation_key: "LivenessFail"
+          severity: HIGH
+          repeat_delay: 120
+      - event_resource_events: {}
+    sinks:
+      - email-devops-team
+      - ms-teams-alerts-devops
+
+
+  # Deployment Update Alert triggered by 'kubectl apply -f ...' or 'kubectl rollout restart ...'. This will only be
+  # triggered if there is actual YAML change.
+  - name: "Deployment Update Alert"
+    triggers:
+      - on_deployment_update:
+          change_filters:
+            # 1. Ignore the status noise entirely
+            ignore:
+              - status
+              - metadata.resourceVersion
+              - metadata.managedFields
+            # 2. Only fire if the underlying spec configuration actually changed
+            include:
+              - spec
+    actions:
+      # Generate the clean diff comparison in alert message
+      - resource_babysitter: {}
+
+      # Intercepts the diff alert and rewrites its title using Robusta tokens
+      - customise_finding:
+          title: "Deployment $name updated in namespace $namespace"
+    sinks:
+      - email-devops-team
+      - ms-teams-alerts-devops
+      
+  # Alert when a Deployment is first created (not on subsequent updates) for a given project
+  - name: "Deployment Created Alert"
+    triggers:
+      - on_deployment_create: { }
+    actions:
+      - create_finding:
+          title: "Deployment $name created in namespace $namespace"
+          severity: "INFO"
+          aggregation_key: "DeploymentCreated"
+    sinks:
+      - email-devops-team
+      - ms-teams-alerts-devops

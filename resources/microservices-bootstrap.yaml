@@ -1,0 +1,49 @@
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: microservices-bootstrap
+  namespace: default
+  labels:
+    notify: "devops"
+
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: microservices-bootstrap
+  template:
+    metadata:
+      labels:
+        app: microservices-bootstrap
+        notify: "devops"
+    spec:
+      containers:
+        - name: microservices-bootstrap
+          image: tokenization-app-jar:latest
+          imagePullPolicy: Never        # use local Minikube image
+          ports:
+            - containerPort: 3000
+          env:
+            - name: APP_ENV
+              value: "staging"
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: microservices-bootstrap
+  namespace: default
+spec:
+  selector:
+    app: microservices-bootstrap
+  ports:
+    - port: 3000
+      targetPort: 3000
+  type: ClusterIP
