@@ -199,7 +199,7 @@ forwarder:
       cpu: "200m"
 ```
 
-The forwarder CPU limit is especially important — the Helm chart does not set one by default, and an unbounded forwarder can starve other pods on the same node.
+The forwarder CPU limit is especially important — the Helm chart does not set one by default, and an unbounded forwarder can starve other pods on the same node. You may be tempted to lower the runner's memory limit (currently 512Mi) closer to its request — but in my experience, that causes the runner to crash (likely OOMKilled itself).
 
 # Email sinks — per-team routing
 
@@ -472,6 +472,34 @@ will generate MS Team alert like
   <img src="images/deployment-update.png" width="600" alt="Click to enlarge">
   </a>	
 
+Arguably the most important feature of Robusta is sending alert(s) whenever a Pod crashes or runs out of memory unexpectedly in real time. Hence it's important to showcase this in UAT else the manager might as well write the whole thing off. 
+
+Fortunately this can be done easily by running the lightweight busybox container image as below
+```bash
+kubectl run crash-test \
+  --image=busybox \
+  --restart=Always \
+  --labels="notify=devops" \
+  -n default \
+  -- /bin/sh -c "sleep 5; exit 1"
+```
+
+Why this works:
+* The container sleeps 5 seconds then exits with code 1 -— a clean, deterministic non-zero exit.
+* --restart=Always (the default for kubectl run) means the kubelet keeps restarting it, so after the first restart you'll enter CrashLoopBackOff — matching your playbook's restart_count: 1 trigger.
+* --labels="notify=devops" is important — without this label, Robusta's scope.include filter will silently drop the alert since it only fires for pods labeled notify=devops.
+
+And we should see this email alert within a minute.
+
+<a href="images/api-service.jpg">
+<img src="images/CrashLoopBackOff.png" width="600" alt="Click to enlarge">
+</a>
+
+To clean up afterward:
+```bash
+kubectl delete pod crash-test -n default
+```
+
 ---
 
 ## Resources
@@ -480,6 +508,12 @@ will generate MS Team alert like
 - [Robusta playbook reference](https://docs.robusta.dev/master/playbook-reference/)
 - [Gmail App Passwords](https://support.google.com/accounts/answer/185833)
 - [apprise URL formats (for mailto)](https://github.com/caronc/apprise/wiki/Notify_email)
+
+---
+
+## Final Thoughts
+
+If you've made it this far, congratulations! You now have the knowledge to implement Kubernetes Pod monitoring alerts for your company — and hopefully impress your boss along the way. 👏
 
 ---
 Author: Samuel Huang
