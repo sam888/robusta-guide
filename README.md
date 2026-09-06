@@ -19,6 +19,7 @@ This guide walks through deploying Robusta as a lightweight Kubernetes alerting 
 - Resource-bounded Robusta runner and forwarder pods
 
 **What this guide does NOT cover:**
+
 - Prometheus, Grafana, or metrics-based alerting
 - Slack, PagerDuty, or other notification sinks
 - Multi-cluster setups
@@ -46,6 +47,7 @@ Such alerts are important to notify the relevant team in real time whenever a de
 The specific problem this guide will also solve: in a shared cluster, different teams own different deployments. A single shared alert inbox creates noise and unclear ownership. By labelling pods with `notify: <team>` and scoping each email sink to its label in Kubernetes yaml file, each team only receives alerts for pods they own.
 
 ---
+
 ## Prerequisites
 
 Before deploying, ensure you have:
@@ -56,6 +58,7 @@ Before deploying, ensure you have:
 - Namespace-level permissions to create secrets and install Helm releases
 
 ---
+
 ## Deploy Robusta
 
 ### 1. Add the Helm repository
@@ -79,6 +82,7 @@ kubectl create secret generic email-secret \
 ```
 
 then references it in robusta-values.yaml like
+
 ```yaml
 runner:
   additional_env_vars:
@@ -97,18 +101,20 @@ runner:
 But unfortunately, the current version of Robusta version doesn't support this (at the time of writing this) so a workaround is required. Before going any further, let's recap the required SMTP config for sending email alert:
 
 * Gmail format:
-	mailtos://your-mail.com:APP-PASSWORD@gmail.com?to=recipient@company.com
-
+  mailtos://your-mail.com:APP-PASSWORD@gmail.com?to=recipient@company.com
 * Corporate SMTP format:
-	mailtos://user:password@your.smtp.server:465?from=alerts@yourcompany.com&to=recipient@company.com
+  mailtos://user:password@your.smtp.server:465?from=alerts@yourcompany.com&to=recipient@company.com
 
 Now since it's not possible to use Kubernetes secrets to do something like below in robusta-values.yaml
+
 ```bash
 mailtos://${EMAIL_USER}:${EMAIL_PASSWORD}@...
 ```
+
 where both ${EMAIL_USER} and ${EMAIL_PASSWORD} get replaced with Kubernetes secrets, the next best thing is to create Kubernetes secret representing the entire config line then inject it into robusta-values.yaml during deployment.
 
 To create actual K8s email secret that can be injected into robusta-values.yaml during deployment, we do something like
+
 ```bash
 # Replace ${user} and ${password} below with actual SMTP user and password before running the command.
 # 
@@ -146,8 +152,8 @@ kubectl rollout restart deployment/robusta-forwarder -n robusta
 kubectl logs -n robusta -l app=robusta-runner  -f --tail=50
 ```
 
-
 Note Robusta deploys two pods:
+
 
 | Pod                 | Role                                                                      |
 | ------------------- | ------------------------------------------------------------------------- |
@@ -167,6 +173,7 @@ kubectl get pods -n robusta
 ## Configuration Explained
 
 Let's walk through the key settings in the supplied `robusta-values.yaml` to ensure everything is crystal clear.
+
 ### Disabling the Prometheus stack
 
 ```yaml
@@ -219,11 +226,12 @@ sinksConfig:
 
 Key fields:
 
-| Field            | Purpose                                                        |
-| ---------------- | -------------------------------------------------------------- |
-| `name`           | Referenced by playbooks to route alerts                        |
+
+| Field            | Purpose                                                         |
+| ---------------- | --------------------------------------------------------------- |
+| `name`           | Referenced by playbooks to route alerts                         |
 | `mailto`         | SMTP URL — see format notes below                              |
-| `default: false` | Sink only receives alerts explicitly sent to it                |
+| `default: false` | Sink only receives alerts explicitly sent to it                 |
 | `scope.include`  | Pod label filter — alerts from other pods are silently dropped |
 
 **To add a new team:**
@@ -235,8 +243,9 @@ Key fields:
 
 # MS Team sinks — per-team routing
 
-Robusta is capable of sending alerts to Microsoft Team chatroom or channel as well. 
+Robusta is capable of sending alerts to Microsoft Team chatroom or channel as well.
 Complete configuration is like
+
 ```bash
  # ── MS Teams ────────────────────────────────────────────────────────
   # Sends alerts to a shared Teams channel via Incoming Webhook.
@@ -263,12 +272,12 @@ Complete configuration is like
 ```
 
 The steps to get value of webhook_url is like
+
 1. Click '...' in left hand menu item => click 'Search in Store'
 
    <a href="images/api-service.jpg">
    <img src="images/ms-team-webhook-1.png" width="450" alt="Click to enlarge">
    </a>
-
 2. Search webhook, choose 'Send webhook alerts to a chat' then follow the process from there to generate a webhook URL for a chosen chat
 
    <a href="images/api-service.jpg">
@@ -379,6 +388,7 @@ Listens for Kubernetes warning events containing "Liveness" — emitted when a c
 Fires event when a deployment's `spec` changes (new image, environment variables, replica count, etc.). The `ignore` list filters out high-frequency noise fields that change constantly without a human-initiated change.
 
 #### Deployment Creation
+
 ```bash
   # Alert when a Deployment is first created (not on subsequent updates) for a given project
   - name: "Deployment Created Alert"
@@ -421,7 +431,7 @@ spec:
       labels:
         app: microservices-bootstrap
         notify: "devops" // Label on the Pod template to detect Pod events by Robusta
-  ...      
+  ...    
 ```
 
 Notice the value of metadata.labels.notify and spec.template.metadata.labels.notify is "devops", matching value of both Email Sink and MS Team Sink config above, e.g.
@@ -434,11 +444,12 @@ Notice the value of metadata.labels.notify and spec.template.metadata.labels.not
          - labels: "notify=devops"
 ```
 
-Pods without a `notify` label are ignored by all sinks from Robusta. 
+Pods without a `notify` label are ignored by all sinks from Robusta.
 
 ---
 
 ## Trigger Reference
+
 
 | Trigger                | When it fires                                                                            |
 | ---------------------- | ---------------------------------------------------------------------------------------- |
@@ -455,26 +466,29 @@ Pods without a `notify` label are ignored by all sinks from Robusta.
 Let's see Robusta in action with some examples.
 
 Deploy a project for the first time in console with Kubernetes command like
+
 * `kubectl apply -f microservices-bootstrap.yaml -n default`
 
 will generate an Email alert like
 
-  <a href="images/api-service.jpg">
+<a href="images/api-service.jpg">
   <img src="images/deployment-creation.png" width="600" alt="Click to enlarge">
   </a>
 
 Rolling out new Pod with Kubernetes command like
+
 * `kubectl rollout restart deployment/{deployment-name} -n {namespace}`
 
 will generate MS Team alert like
 
-  <a href="images/api-service.jpg">
+<a href="images/api-service.jpg">
   <img src="images/deployment-update.png" width="600" alt="Click to enlarge">
-  </a>	
+  </a>
 
-Arguably the most important feature of Robusta is sending alert(s) whenever a Pod crashes or runs out of memory unexpectedly in real time. Hence it's important to showcase this in UAT else the manager might as well write the whole thing off. 
+Arguably the most important feature of Robusta is sending alert(s) whenever a Pod crashes or runs out of memory unexpectedly in real time. Hence it's important to showcase this in UAT else the manager might as well write the whole thing off.
 
 Fortunately this can be done easily by running the lightweight busybox container image as below
+
 ```bash
 kubectl run crash-test \
   --image=busybox \
@@ -485,6 +499,7 @@ kubectl run crash-test \
 ```
 
 Why this works:
+
 * The container sleeps 5 seconds then exits with code 1 -— a clean, deterministic non-zero exit.
 * --restart=Always (the default for kubectl run) means the kubelet keeps restarting it, so after the first restart you'll enter CrashLoopBackOff — matching your playbook's restart_count: 1 trigger.
 * --labels="notify=devops" is important — without this label, Robusta's scope.include filter will silently drop the alert since it only fires for pods labeled notify=devops.
@@ -496,6 +511,7 @@ And we should see this email alert within a minute.
 </a>
 
 To clean up afterward:
+
 ```bash
 kubectl delete pod crash-test -n default
 ```
@@ -513,7 +529,8 @@ kubectl delete pod crash-test -n default
 
 ## Final Thoughts
 
-If you've made it this far, congratulations! You now have the knowledge to implement Kubernetes Pod monitoring alerts for your company — and hopefully impress your boss along the way. 👏
+If you've made it this far, congratulations! You now have the knowledge to implement Kubernetes Pod Monitoring Alerts for your company — and hopefully impress your boss along the way. 👏
 
 ---
+
 Author: Samuel Huang
