@@ -275,12 +275,12 @@ The steps to get value of webhook_url is like
 
 1. Click '...' in left hand menu item => click 'Search in Store'
 
-   <a href="images/api-service.jpg">
+   <a href="images/ms-team-webhook-1.png">
    <img src="images/ms-team-webhook-1.png" width="450" alt="Click to enlarge">
    </a>
 2. Search webhook, choose 'Send webhook alerts to a chat' then follow the process from there to generate a webhook URL for a chosen chat
 
-   <a href="images/api-service.jpg">
+   <a href="images/ms-team-webhook-2.png">
    <img src="images/ms-team-webhook-2.png" width="450" alt="Click to enlarge">
    </a>
 
@@ -471,7 +471,7 @@ Deploy a project for the first time in console with Kubernetes command like
 
 will generate an Email alert like
 
-<a href="images/api-service.jpg">
+<a href="images/deployment-creation.png">
   <img src="images/deployment-creation.png" width="600" alt="Click to enlarge">
   </a>
 
@@ -481,7 +481,7 @@ Rolling out new Pod with Kubernetes command like
 
 will generate MS Team alert like
 
-<a href="images/api-service.jpg">
+<a href="images/deployment-update.png">
   <img src="images/deployment-update.png" width="600" alt="Click to enlarge">
   </a>
 
@@ -506,7 +506,7 @@ Why this works:
 
 And we should see this email alert within a minute.
 
-<a href="images/api-service.jpg">
+<a href="images/CrashLoopBackOff.png">
 <img src="images/CrashLoopBackOff.png" width="600" alt="Click to enlarge">
 </a>
 
